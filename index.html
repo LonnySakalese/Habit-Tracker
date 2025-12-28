@@ -1422,8 +1422,8 @@
 
             <!-- Formulaire de connexion -->
             <div id="auth-login" class="auth-form active">
-                <input type="email" id="login-email" placeholder="Email" autocomplete="email">
-                <input type="password" id="login-password" placeholder="Mot de passe" autocomplete="current-password">
+                <input type="email" id="login-email" placeholder="Email" autocomplete="email" required>
+                <input type="password" id="login-password" placeholder="Mot de passe (min 8 caractères)" autocomplete="current-password" required>
                 <button class="auth-btn" onclick="handleLogin()">Se connecter</button>
                 <div class="auth-error" id="login-error"></div>
                 <a href="#" class="forgot-password-link" onclick="handleForgotPassword(); return false;">Mot de passe oublié ?</a>
@@ -1431,9 +1431,9 @@
 
             <!-- Formulaire d'inscription -->
             <div id="auth-signup" class="auth-form">
-                <input type="email" id="signup-email" placeholder="Email" autocomplete="email">
-                <input type="password" id="signup-password" placeholder="Mot de passe (min 6 caractères)" autocomplete="new-password">
-                <input type="password" id="signup-confirm" placeholder="Confirmer le mot de passe" autocomplete="new-password">
+                <input type="email" id="signup-email" placeholder="Email" autocomplete="email" required>
+                <input type="password" id="signup-password" placeholder="Mot de passe (min 8 caractères)" autocomplete="new-password" required>
+                <input type="password" id="signup-confirm" placeholder="Confirmer le mot de passe" autocomplete="new-password" required>
                 <button class="auth-btn" onclick="handleSignup()">S'inscrire</button>
                 <div class="auth-error" id="signup-error"></div>
             </div>
@@ -1830,14 +1830,22 @@
                 return;
             }
 
+            // Validation de l'email
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                errorEl.textContent = 'Adresse e-mail invalide';
+                errorEl.classList.add('show');
+                return;
+            }
+
             if (password !== confirm) {
                 errorEl.textContent = 'Les mots de passe ne correspondent pas';
                 errorEl.classList.add('show');
                 return;
             }
 
-            if (password.length < 6) {
-                errorEl.textContent = 'Le mot de passe doit contenir au moins 6 caractères';
+            if (password.length < 8) {
+                errorEl.textContent = 'Le mot de passe doit contenir au moins 8 caractères';
                 errorEl.classList.add('show');
                 return;
             }
@@ -1875,6 +1883,20 @@
 
             if (!email || !password) {
                 errorEl.textContent = 'Email et mot de passe requis';
+                errorEl.classList.add('show');
+                return;
+            }
+
+            // Validation de l'email
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email)) {
+                errorEl.textContent = 'Adresse e-mail invalide';
+                errorEl.classList.add('show');
+                return;
+            }
+
+            if (password.length < 8) {
+                errorEl.textContent = 'Le mot de passe doit contenir au moins 8 caractères';
                 errorEl.classList.add('show');
                 return;
             }
@@ -2019,9 +2041,19 @@
                 lastLogin: firebase.firestore.FieldValue.serverTimestamp()
             });
 
-            // Créer les habitudes par défaut (basées sur le tableau habits)
+            // Habitudes par défaut à créer
+            const defaultHabits = [
+                { id: 'coldshower', name: 'DOUCHE FROIDE', icon: '🧊' },
+                { id: 'reading', name: 'LECTURE (30 min)', icon: '📚' },
+                { id: 'nutrition', name: 'NUTRITION CLEAN', icon: '🥗' },
+                { id: 'sleep', name: 'SOMMEIL 8H+ (couché avant 22h)', icon: '😴' },
+                { id: 'hydration', name: 'HYDRATATION 2L+', icon: '💧' },
+                { id: 'wakeup', name: 'RÉVEIL 5H-6H', icon: '⏰' }
+            ];
+
+            // Créer les habitudes par défaut dans Firestore
             const batch = db.batch();
-            habits.forEach((habit, index) => {
+            defaultHabits.forEach((habit, index) => {
                 const habitRef = userRef.collection('habits').doc(habit.id);
                 batch.set(habitRef, {
                     name: habit.name,
@@ -2034,7 +2066,7 @@
             });
 
             await batch.commit();
-            console.log('✅ Profil utilisateur créé avec habitudes par défaut');
+            console.log('✅ Profil utilisateur créé avec 6 habitudes par défaut');
         }
 
         // Auth State Listener sera géré dans DOMContentLoaded
@@ -2976,8 +3008,56 @@
             updateUI();
         }
 
+        // Charger les habitudes depuis Firestore (pour utilisateurs connectés)
+        async function loadHabitsFromFirestore() {
+            if (!isFirebaseConfigured || !appState.currentUser) return;
+
+            try {
+                const userId = appState.currentUser.uid;
+                const habitsSnapshot = await db.collection('users').doc(userId).collection('habits').get();
+
+                // Vider le tableau habits
+                habits.length = 0;
+
+                // Charger toutes les habitudes actives
+                const loadedHabits = [];
+                habitsSnapshot.forEach(doc => {
+                    const habitData = doc.data();
+                    if (habitData.isActive !== false) {
+                        loadedHabits.push({
+                            id: doc.id,
+                            name: habitData.name,
+                            icon: habitData.icon,
+                            color: habitData.color || '#F5F5F0'
+                        });
+                    }
+                });
+
+                // Trier par order
+                loadedHabits.sort((a, b) => {
+                    const orderA = habitsSnapshot.docs.find(d => d.id === a.id)?.data().order || 0;
+                    const orderB = habitsSnapshot.docs.find(d => d.id === b.id)?.data().order || 0;
+                    return orderA - orderB;
+                });
+
+                // Ajouter au tableau habits
+                loadedHabits.forEach(habit => habits.push(habit));
+
+                console.log(`✅ ${habits.length} habitudes chargées depuis Firestore`);
+            } catch (error) {
+                console.error('❌ Erreur chargement habitudes Firestore:', error);
+            }
+        }
+
         // Charger les habitudes personnalisées au démarrage
-        function loadCustomHabits() {
+        async function loadCustomHabits() {
+            // Si Firebase configuré et utilisateur connecté, charger depuis Firestore
+            if (isFirebaseConfigured && appState.currentUser) {
+                await loadHabitsFromFirestore();
+                return;
+            }
+
+            // Sinon, charger depuis localStorage
             const data = getData();
 
             // Charger les noms personnalisés
@@ -3271,8 +3351,8 @@
         // --- INITIALISATION DE L'APPLICATION ---
         document.addEventListener('DOMContentLoaded', () => {
 
-            function initializeApp() {
-                loadCustomHabits();
+            async function initializeApp() {
+                await loadCustomHabits();
                 updateUI();
                 const savedData = getData();
                 if (savedData.notificationsEnabled && Notification.permission === 'granted') {
@@ -3337,7 +3417,7 @@
                         document.getElementById('logoutBtn').style.display = 'block';
                         document.getElementById('deleteAccountBtn').style.display = 'block';
                         showAppPage('today');
-                        initializeApp();
+                        await initializeApp();
                     } else {
                         appState.currentUser = null;
                         console.log('⚠️ Utilisateur non connecté');
